@@ -161,8 +161,11 @@ app.get("/callback", async (req, res) => {
     res.redirect("/success?t=" + launcherToken);
 
   } catch (err) {
-    console.error("Erreur OAuth:", err.response?.data || err.message);
-    res.status(500).send("Erreur lors de la connexion Discord: " + err.message);
+    const errorData = err.response?.data || err.message;
+    console.error("Erreur OAuth complète:", JSON.stringify(errorData));
+    console.error("redirect_uri utilisé:", DISCORD_REDIRECT_URI);
+    console.error("code reçu:", code);
+    res.status(500).send("Erreur lors de la connexion Discord: " + JSON.stringify(errorData));
   }
 });
 
