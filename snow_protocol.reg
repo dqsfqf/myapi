@@ -1,0 +1,13 @@
+
+Windows Registry Editor Version 5.00
+
+[HKEY_CURRENT_USER\Software\Classes\snow]
+@="URL:Snow Protocol"
+"URL Protocol"=""
+
+[HKEY_CURRENT_USER\Software\Classes\snow\shell]
+
+[HKEY_CURRENT_USER\Software\Classes\snow\shell\open]
+
+[HKEY_CURRENT_USER\Software\Classes\snow\shell\open\command]
+@="\"C:\\Program Files\\Retrac Launcher\\Retrac Launcher.exe\" \"%1\""
