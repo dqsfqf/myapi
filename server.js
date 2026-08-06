@@ -127,7 +127,6 @@ app.get("/callback", async (req, res) => {
   }
 
   try {
-    // Échange le code contre un access token Discord
     const tokenRes = await axios.post(
       "https://discord.com/api/oauth2/token",
       new URLSearchParams({
@@ -142,7 +141,6 @@ app.get("/callback", async (req, res) => {
 
     const accessToken = tokenRes.data.access_token;
 
-    // Récupère les infos Discord
     const userRes = await axios.get("https://discord.com/api/users/@me", {
       headers: { Authorization: "Bearer " + accessToken },
     });
@@ -151,18 +149,29 @@ app.get("/callback", async (req, res) => {
     const username  = userRes.data.username;
     console.log("Connexion Discord:", username, discordId);
 
-    // Token pour le launcher — base64url sans +/=/
     const launcherToken = Buffer.from(discordId + ":" + username + ":" + Date.now())
       .toString("base64")
       .replace(/\+/g, "-")
       .replace(/\//g, "_")
       .replace(/=/g, "");
 
-    // Stocke les infos pour /snow/player
     tokenStore.set(launcherToken, { discordId, username });
 
-    // Page HTML qui ouvre le launcher via snow://
-    res.send(`<!DOCTYPE html>
+    // Redirige vers /success pour éviter le rechargement de /callback
+    res.redirect("/success?t=" + launcherToken);
+
+  } catch (err) {
+    console.error("Erreur OAuth:", err.response?.data || err.message);
+    res.status(500).send("Erreur lors de la connexion Discord: " + err.message);
+  }
+});
+
+// Page de succès — ouvre le launcher via snow://
+app.get("/success", (req, res) => {
+  const token = req.query.t;
+  if (!token) return res.status(400).send("Token manquant");
+
+  res.send(`<!DOCTYPE html>
 <html>
 <head>
   <meta charset="UTF-8"/>
@@ -184,15 +193,14 @@ app.get("/callback", async (req, res) => {
   <div class="box">
     <h2>Connexion réussie !</h2>
     <p id="msg">Ouverture du launcher...</p>
-    <a id="btn" href="snow://auth@${launcherToken}">Ouvrir le Launcher</a>
+    <a href="snow://auth@${token}">Ouvrir le Launcher</a>
   </div>
   <script>
-    // Ouvre une seule fois, pas de boucle
     var opened = false;
     function openLauncher() {
       if (opened) return;
       opened = true;
-      window.location.href = "snow://auth@${launcherToken}";
+      window.location.href = "snow://auth@${token}";
       setTimeout(function() {
         document.getElementById("msg").textContent = "Si le launcher ne s'ouvre pas, clique sur le bouton.";
       }, 2000);
@@ -201,11 +209,6 @@ app.get("/callback", async (req, res) => {
   </script>
 </body>
 </html>`);
-
-  } catch (err) {
-    console.error("Erreur OAuth:", err.response?.data || err.message);
-    res.status(500).send("Erreur lors de la connexion Discord: " + err.message);
-  }
 });
 
 app.get("/", (req, res) => res.send("Retrac backend OK"));
