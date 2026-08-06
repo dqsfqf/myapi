@@ -11,7 +11,7 @@ app.use(express.json());
 // ── Config Discord ──────────────────────────────────────────────
 const DISCORD_CLIENT_ID     = "1534980941355683950";
 const DISCORD_CLIENT_SECRET = "sMPhtifc26xWQQMqZyw8DAE4qMF7HaQr"; // ← mets ton secret ici
-const DISCORD_REDIRECT_URI  = "https://myapi-dxz9.onrender.com/callback";
+const DISCORD_REDIRECT_URI  = "https://myapi-1-nkwt.onrender.com//callback";
 // ───────────────────────────────────────────────────────────────
 
 // Enregistre snow:// dans le registre Windows au démarrage
