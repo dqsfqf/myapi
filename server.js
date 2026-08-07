@@ -254,10 +254,14 @@ app.get("/snow/last-token", (req, res) => {
 app.get("/snow/player/code", (req, res) => {
   const raw = req.headers.authorization || "";
   const token = decodeURIComponent(raw);
-  if (!token || !tokenStore.has(token)) {
-    return res.status(401).json({ error: "Token invalide" });
+  if (!token) {
+    return res.status(401).json({ error: "Token manquant" });
   }
-  res.json(token);
+  // Accepte si dans le store OU si le token est décodable (store vide après redémarrage Render)
+  if (tokenStore.has(token) || decodeToken(token)) {
+    return res.json(token);
+  }
+  return res.status(401).json({ error: "Token invalide" });
 });
 
 app.listen(3000, "0.0.0.0", () => {
