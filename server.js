@@ -75,6 +75,8 @@ app.get("/snow/discord", (req, res) => {
 
 // Stocke les tokens en mémoire (discordId par token)
 const tokenStore = new Map();
+// Tokens en attente d'être récupérés par le launcher (sessionId → token)
+const pendingTokens = new Map();
 
 // Vérifie si le token est valide
 app.get("/snow/player/okay", (req, res) => {
@@ -105,6 +107,9 @@ app.get("/snow/player", (req, res) => {
       DisplayName: user.username,
       Discord: {
         Username: user.username,
+        Avatar: user.avatar
+          ? `https://cdn.discordapp.com/avatars/${user.discordId}/${user.avatar}.png?size=128`
+          : `https://cdn.discordapp.com/embed/avatars/0.png`,
       },
       Stats: {},
       State: {
@@ -155,14 +160,24 @@ app.get("/callback", async (req, res) => {
       .replace(/\//g, "_")
       .replace(/=/g, "");
 
-    tokenStore.set(launcherToken, { discordId, username });
+    tokenStore.set(launcherToken, { discordId, username, avatar: userRes.data.avatar });
+
+    // Stocke aussi dans pendingTokens pour que le launcher puisse le récupérer
+    pendingTokens.set(discordId, launcherToken);
+    // Nettoie après 5 minutes
+    setTimeout(() => pendingTokens.delete(discordId), 5 * 60 * 1000);
+    // Pour le polling du launcher
+    lastToken = launcherToken;
 
     // Redirige vers /success pour éviter le rechargement de /callback
     res.redirect("/success?t=" + launcherToken);
 
   } catch (err) {
-    console.error("Erreur OAuth:", err.response?.data || err.message);
-    res.status(500).send("Erreur lors de la connexion Discord: " + err.message);
+    const errorData = err.response?.data || err.message;
+    console.error("Erreur OAuth complète:", JSON.stringify(errorData));
+    console.error("redirect_uri utilisé:", DISCORD_REDIRECT_URI);
+    console.error("code reçu:", code);
+    res.status(500).send("Erreur lors de la connexion Discord: " + JSON.stringify(errorData));
   }
 });
 
@@ -213,6 +228,209 @@ app.get("/success", (req, res) => {
 
 app.get("/", (req, res) => res.send("Retrac backend OK"));
 
-app.listen(3000, "0.0.0.0", () => {
-  console.log("Backend lancé sur https://myapi-1-nkwt.onrender.com");
+// Retourne le dernier token généré (pour polling du launcher en dev)
+let lastToken = null;
+app.get("/snow/last-token", (req, res) => {
+  if (!lastToken) return res.status(204).send();
+  const t = lastToken;
+  lastToken = null; // consommé une seule fois
+  res.json(t);
 });
+
+// Génère un code d'échange pour Fortnite
+app.get("/snow/player/code", (req, res) => {
+  const raw = req.headers.authorization || "";
+  const token = decodeURIComponent(raw);
+  if (!token || !tokenStore.has(token)) {
+    return res.status(401).json({ error: "Token invalide" });
+  }
+  res.json(token);
+});
+
+app.listen(3000, "0.0.0.0", () => {
+  console.log("Backend lancé sur http://127.0.0.1:3000");
+});
+
+// ── Fortnite Auth Endpoints ─────────────────────────────────────
+// Ces endpoints imitent l'API Epic Games pour bypasser le login
+
+// OAuth token — Fortnite demande un token ici
+app.post("/account/api/oauth/token", (req, res) => {
+  const body = req.body;
+  const username = body.username || body.token_type || "Player";
+
+  // Cherche l'utilisateur dans le tokenStore
+  let displayName = username;
+  let accountId = "echoplayer" + Date.now().toString(36);
+
+  for (const [token, user] of tokenStore.entries()) {
+    if (body.password && body.password === token) {
+      displayName = user.username;
+      accountId = user.discordId;
+      break;
+    }
+  }
+
+  const accessToken = "eg1~" + Buffer.from(accountId + ":" + displayName + ":" + Date.now()).toString("base64").replace(/[+=\/]/g, "");
+
+  res.json({
+    access_token: accessToken,
+    expires_in: 28800,
+    expires_at: new Date(Date.now() + 28800000).toISOString(),
+    token_type: "bearer",
+    account_id: accountId,
+    client_id: "3f69e56c7649492c8cc29f1af08a8a12",
+    internal_client: true,
+    client_service: "fortnite",
+    displayName: displayName,
+    app: "fortnite",
+    in_app_id: accountId,
+  });
+});
+
+// Exchange code → token
+app.get("/account/api/oauth/exchange", (req, res) => {
+  const auth = req.headers.authorization || "";
+  res.json({
+    expiresInSeconds: 300,
+    code: auth.replace("bearer ", "").replace("eg1~", "").slice(0, 32),
+    creatingClientId: "3f69e56c7649492c8cc29f1af08a8a12",
+  });
+});
+
+// Verify token
+app.get("/account/api/oauth/verify", (req, res) => {
+  const auth = req.headers.authorization || "";
+  const token = auth.replace("bearer ", "");
+  res.json({
+    token: token,
+    session_id: token.slice(0, 32),
+    token_type: "bearer",
+    client_id: "3f69e56c7649492c8cc29f1af08a8a12",
+    internal_client: true,
+    client_service: "fortnite",
+    account_id: "echodefault",
+    displayName: "EchoPlayer",
+    app: "fortnite",
+    in_app_id: "echodefault",
+    expires_in: 28800,
+    expires_at: new Date(Date.now() + 28800000).toISOString(),
+  });
+});
+
+// Account info
+app.get("/account/api/public/account/:id", (req, res) => {
+  res.json({
+    id: req.params.id,
+    displayName: "EchoPlayer",
+    name: "Echo",
+    email: "echo@echo.site",
+    failedLoginAttempts: 0,
+    lastLogin: new Date().toISOString(),
+    numberOfDisplayNameChanges: 0,
+    ageGroup: "UNKNOWN",
+    headless: false,
+    country: "FR",
+    lastName: "Player",
+    links: {},
+    preferredLanguage: "fr",
+    canUpdateDisplayName: false,
+    tfaEnabled: false,
+    emailVerified: true,
+    minorVerified: false,
+    minorExpected: false,
+    minorStatus: "UNKNOWN",
+  });
+});
+
+// Lookup by display name
+app.get("/account/api/public/account/displayName/:name", (req, res) => {
+  res.json({
+    id: "echodefault",
+    displayName: req.params.name,
+  });
+});
+
+// Fortnite entitlement
+app.get("/entitlement/api/account/:id/entitlements", (req, res) => {
+  res.json([]);
+});
+
+// Friends
+app.get("/friends/api/public/friends/:id", (req, res) => {
+  res.json([]);
+});
+
+// Presence
+app.get("/presence/api/v1/:ns/:id/settings/subscriptions", (req, res) => {
+  res.json({});
+});
+
+// Lightswitch
+app.get("/lightswitch/api/service/bulk/status", (req, res) => {
+  res.json([{
+    serviceInstanceId: "fortnite",
+    status: "UP",
+    message: "Echo is UP",
+    maintenanceUri: null,
+    overrideCatalogIds: ["a7f138b2e51945ffbfdacc1af0541053"],
+    allowedActions: ["PLAY", "DOWNLOAD"],
+    banned: false,
+  }]);
+});
+
+// Catalog
+app.get("/catalog/api/shared/bulk/offers", (req, res) => {
+  res.json({ elements: [], paging: { count: 0, total: 0 } });
+});
+
+// User search
+app.post("/datarouter/api/v1/public/data", (req, res) => {
+  res.status(204).send();
+});
+
+// Crash reporter
+app.post("/fortnite/api/game/v2/tryPlayOnPlatform/account/:id", (req, res) => {
+  res.send("true");
+});
+
+app.post("/fortnite/api/game/v2/enabled_features", (req, res) => {
+  res.json([]);
+});
+
+// Cloudstorage
+app.get("/fortnite/api/cloudstorage/system", (req, res) => {
+  res.json([]);
+});
+
+app.get("/fortnite/api/cloudstorage/user/:id", (req, res) => {
+  res.json([]);
+});
+
+// Profile
+app.post("/fortnite/api/game/v2/profile/:id/client/:action", (req, res) => {
+  res.json({
+    profileRevision: 1,
+    profileId: req.query.profileId || "athena",
+    profileChangesBaseRevision: 1,
+    profileChanges: [],
+    profileCommandRevision: 1,
+    serverTime: new Date().toISOString(),
+    responseVersion: 1,
+  });
+});
+
+// MCP
+app.post("/fortnite/api/game/v2/profile/:id/dedicated_server/:action", (req, res) => {
+  res.json({
+    profileRevision: 1,
+    profileId: "athena",
+    profileChangesBaseRevision: 1,
+    profileChanges: [],
+    profileCommandRevision: 1,
+    serverTime: new Date().toISOString(),
+    responseVersion: 1,
+  });
+});
+
+console.log("Endpoints Fortnite Auth ajoutés");
