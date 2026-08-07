@@ -260,17 +260,24 @@ app.listen(3000, "0.0.0.0", () => {
 // OAuth token — Fortnite demande un token ici
 app.post("/account/api/oauth/token", (req, res) => {
   const body = req.body;
-  const username = body.username || body.token_type || "Player";
 
-  // Cherche l'utilisateur dans le tokenStore
-  let displayName = username;
+  // Cherche l'utilisateur dans le tokenStore via le code d'échange (password)
+  let displayName = "EchoPlayer";
   let accountId = "echoplayer" + Date.now().toString(36);
 
-  for (const [token, user] of tokenStore.entries()) {
-    if (body.password && body.password === token) {
-      displayName = user.username;
-      accountId = user.discordId;
-      break;
+  const exchangeCode = body.password || body.exchange_code || "";
+  if (exchangeCode && tokenStore.has(exchangeCode)) {
+    const user = tokenStore.get(exchangeCode);
+    displayName = user.username;
+    accountId = user.discordId;
+  } else {
+    // Cherche par correspondance partielle si le code est transformé
+    for (const [token, user] of tokenStore.entries()) {
+      if (exchangeCode && (exchangeCode === token || exchangeCode.includes(user.discordId))) {
+        displayName = user.username;
+        accountId = user.discordId;
+        break;
+      }
     }
   }
 
@@ -304,7 +311,21 @@ app.get("/account/api/oauth/exchange", (req, res) => {
 // Verify token
 app.get("/account/api/oauth/verify", (req, res) => {
   const auth = req.headers.authorization || "";
-  const token = auth.replace("bearer ", "");
+  const token = auth.replace(/^bearer /i, "");
+
+  // Décode le token eg1~ pour récupérer accountId et displayName
+  let accountId = "echodefault";
+  let displayName = "EchoPlayer";
+  try {
+    const raw = token.replace("eg1~", "");
+    const decoded = Buffer.from(raw, "base64").toString("utf8");
+    const parts = decoded.split(":");
+    if (parts.length >= 2) {
+      accountId = parts[0];
+      displayName = parts[1];
+    }
+  } catch {}
+
   res.json({
     token: token,
     session_id: token.slice(0, 32),
@@ -312,10 +333,10 @@ app.get("/account/api/oauth/verify", (req, res) => {
     client_id: "3f69e56c7649492c8cc29f1af08a8a12",
     internal_client: true,
     client_service: "fortnite",
-    account_id: "echodefault",
-    displayName: "EchoPlayer",
+    account_id: accountId,
+    displayName: displayName,
     app: "fortnite",
-    in_app_id: "echodefault",
+    in_app_id: accountId,
     expires_in: 28800,
     expires_at: new Date(Date.now() + 28800000).toISOString(),
   });
@@ -323,10 +344,21 @@ app.get("/account/api/oauth/verify", (req, res) => {
 
 // Account info
 app.get("/account/api/public/account/:id", (req, res) => {
+  const accountId = req.params.id;
+
+  // Cherche dans le tokenStore si on a les infos pour cet accountId (discordId)
+  let displayName = "EchoPlayer";
+  for (const [, user] of tokenStore.entries()) {
+    if (user.discordId === accountId) {
+      displayName = user.username;
+      break;
+    }
+  }
+
   res.json({
-    id: req.params.id,
-    displayName: "EchoPlayer",
-    name: "Echo",
+    id: accountId,
+    displayName: displayName,
+    name: displayName,
     email: "echo@echo.site",
     failedLoginAttempts: 0,
     lastLogin: new Date().toISOString(),
