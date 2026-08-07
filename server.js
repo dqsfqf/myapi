@@ -214,5 +214,5 @@ app.get("/success", (req, res) => {
 app.get("/", (req, res) => res.send("Retrac backend OK"));
 
 app.listen(3000, "0.0.0.0", () => {
-  console.log("Backend lancé sur http://127.0.0.1:3000");
+  console.log("Backend lancé sur https://myapi-1-nkwt.onrender.com");
 });
