@@ -6,7 +6,6 @@ const axios = require("axios");
 const cors = require("cors");
 const { execSync } = require("child_process");
 const path = require("path");
-const { WebSocketServer } = require("ws");
 
 const app = express();
 app.use(cors());
@@ -253,50 +252,6 @@ app.get("/snow/player/code", (req, res) => {
 
 app.listen(3000, "0.0.0.0", () => {
   console.log("Backend lancé sur http://127.0.0.1:3000");
-});
-
-// ── Serveur WebSocket XMPP (pour Fortnite) ─────────────────────
-const server = http.createServer(app);
-const wss = new WebSocketServer({ server });
-
-wss.on("connection", (ws) => {
-  console.log("XMPP WebSocket connecté");
-
-  // Envoie le stream d'ouverture XMPP
-  ws.send(`<?xml version="1.0"?><stream:stream xmlns="jabber:client" xmlns:stream="http://etherx.jabber.org/streams" id="echo" from="prod.ol.epicgames.com" version="1.0" xml:lang="en">`);
-  ws.send(`<stream:features><mechanisms xmlns="urn:ietf:params:xml:ns:xmpp-sasl"><mechanism>PLAIN</mechanism></mechanisms></stream:features>`);
-
-  ws.on("message", (data) => {
-    const msg = data.toString();
-    console.log("XMPP reçu:", msg.slice(0, 200));
-
-    if (msg.includes("auth")) {
-      ws.send(`<success xmlns="urn:ietf:params:xml:ns:xmpp-sasl"/>`);
-    } else if (msg.includes("<stream:stream")) {
-      ws.send(`<?xml version="1.0"?><stream:stream xmlns="jabber:client" xmlns:stream="http://etherx.jabber.org/streams" id="echo" from="prod.ol.epicgames.com" version="1.0" xml:lang="en">`);
-      ws.send(`<stream:features><bind xmlns="urn:ietf:params:xml:ns:xmpp-bind"/><session xmlns="urn:ietf:params:xml:ns:xmpp-session"/></stream:features>`);
-    } else if (msg.includes("<bind")) {
-      const match = msg.match(/<resource>(.+?)<\/resource>/);
-      const resource = match ? match[1] : "launcher";
-      ws.send(`<iq id="bind" type="result"><bind xmlns="urn:ietf:params:xml:ns:xmpp-bind"><jid>echodefault@prod.ol.epicgames.com/${resource}</jid></bind></iq>`);
-    } else if (msg.includes("<session")) {
-      ws.send(`<iq type="result" id="session"/>`);
-    } else if (msg.includes("<presence")) {
-      ws.send(`<presence from="echodefault@prod.ol.epicgames.com"/>`);
-    } else if (msg.includes("<iq")) {
-      const idMatch = msg.match(/id="([^"]+)"/);
-      const id = idMatch ? idMatch[1] : "iq";
-      ws.send(`<iq type="result" id="${id}"/>`);
-    }
-  });
-
-  ws.on("close", () => console.log("XMPP WebSocket déconnecté"));
-  ws.on("error", (err) => console.error("XMPP WebSocket erreur:", err.message));
-});
-
-const PORT = process.env.PORT || 3000;
-server.listen(PORT, "0.0.0.0", () => {
-  console.log("Backend + XMPP WebSocket lancé sur port", PORT);
 });
 
 // ── Fortnite Auth Endpoints ─────────────────────────────────────
