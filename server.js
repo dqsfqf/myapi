@@ -85,24 +85,34 @@ const pendingTokens = new Map();
 app.get("/snow/player/okay", (req, res) => {
   const raw = req.headers.authorization || "";
   const token = decodeURIComponent(raw);
-  if (!token || !tokenStore.has(token)) {
+  if (!token) {
     return res.status(401).json({ error: "Token invalide" });
   }
-  res.json("ok");
+  // Accepte si dans le store OU si décodable comme token valide
+  if (tokenStore.has(token) || decodeToken(token)) {
+    return res.json("ok");
+  }
+  return res.status(401).json({ error: "Token invalide" });
 });
 
 // Retourne les infos du joueur à partir du token
 app.get("/snow/player", (req, res) => {
   const raw = req.headers.authorization || "";
-  // Décode les caractères URL-encodés (%2B etc.)
   const token = decodeURIComponent(raw);
-  console.log("GET /snow/player token:", token, "found:", tokenStore.has(token));
 
-  if (!token || !tokenStore.has(token)) {
-    return res.status(401).json({ error: "Token invalide" });
+  let user = tokenStore.get(token);
+
+  // Si pas dans le store, essaie de décoder directement le token
+  if (!user) {
+    const decoded = decodeToken(token);
+    if (decoded) {
+      user = { discordId: decoded.discordId, username: decoded.username, avatar: null };
+    }
   }
 
-  const user = tokenStore.get(token);
+  if (!user) {
+    return res.status(401).json({ error: "Token invalide" });
+  }
 
   res.json({
     ID: user.discordId,
@@ -257,27 +267,41 @@ app.listen(3000, "0.0.0.0", () => {
 // ── Fortnite Auth Endpoints ─────────────────────────────────────
 // Ces endpoints imitent l'API Epic Games pour bypasser le login
 
+// Décode un token launcher (base64 url-safe) pour retrouver discordId et username
+function decodeToken(token) {
+  try {
+    // Format: base64(discordId:username:timestamp) avec - et _ au lieu de + et /
+    const b64 = token.replace(/-/g, "+").replace(/_/g, "/");
+    const decoded = Buffer.from(b64, "base64").toString("utf8");
+    const parts = decoded.split(":");
+    if (parts.length >= 2 && parts[0].length > 5) {
+      return { discordId: parts[0], username: parts[1] };
+    }
+  } catch {}
+  return null;
+}
+
 // OAuth token — Fortnite demande un token ici
 app.post("/account/api/oauth/token", (req, res) => {
   const body = req.body;
 
-  // Cherche l'utilisateur dans le tokenStore via le code d'échange (password)
   let displayName = "EchoPlayer";
   let accountId = "echoplayer" + Date.now().toString(36);
 
-  const exchangeCode = body.password || body.exchange_code || "";
+  // Récupère le code depuis tous les champs possibles
+  const exchangeCode = body.exchange_code || body.password || body.code || "";
+
+  // 1. Cherche dans le tokenStore (si encore en mémoire)
   if (exchangeCode && tokenStore.has(exchangeCode)) {
     const user = tokenStore.get(exchangeCode);
     displayName = user.username;
     accountId = user.discordId;
-  } else {
-    // Cherche par correspondance partielle si le code est transformé
-    for (const [token, user] of tokenStore.entries()) {
-      if (exchangeCode && (exchangeCode === token || exchangeCode.includes(user.discordId))) {
-        displayName = user.username;
-        accountId = user.discordId;
-        break;
-      }
+  } else if (exchangeCode) {
+    // 2. Décode directement le token base64 (fonctionne même si le store est vide)
+    const decoded = decodeToken(exchangeCode);
+    if (decoded) {
+      displayName = decoded.username;
+      accountId = decoded.discordId;
     }
   }
 
@@ -313,9 +337,9 @@ app.get("/account/api/oauth/verify", (req, res) => {
   const auth = req.headers.authorization || "";
   const token = auth.replace(/^bearer /i, "");
 
-  // Décode le token eg1~ pour récupérer accountId et displayName
   let accountId = "echodefault";
   let displayName = "EchoPlayer";
+
   try {
     const raw = token.replace("eg1~", "");
     const decoded = Buffer.from(raw, "base64").toString("utf8");
@@ -325,6 +349,16 @@ app.get("/account/api/oauth/verify", (req, res) => {
       displayName = parts[1];
     }
   } catch {}
+
+  // Vérifie aussi dans le tokenStore
+  if (displayName === "EchoPlayer") {
+    for (const [, user] of tokenStore.entries()) {
+      if (user.discordId === accountId) {
+        displayName = user.username;
+        break;
+      }
+    }
+  }
 
   res.json({
     token: token,
