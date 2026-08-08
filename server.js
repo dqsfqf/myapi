@@ -250,19 +250,22 @@ app.get("/snow/last-token", (req, res) => {
   res.json(t);
 });
 
-// Génère un code d'échange pour Fortnite
-app.get("/snow/player/code", (req, res) => {
+// Génère un code d'échange pour Fortnite (GET et POST acceptés)
+const handlePlayerCode = (req, res) => {
   const raw = req.headers.authorization || "";
   const token = decodeURIComponent(raw);
   if (!token) {
     return res.status(401).json({ error: "Token manquant" });
   }
-  // Accepte si dans le store OU si le token est décodable (store vide après redémarrage Render)
   if (tokenStore.has(token) || decodeToken(token)) {
-    return res.json(token);
+    // Retourne le token directement en string (sans wrapper JSON)
+    return res.send(JSON.stringify(token));
   }
   return res.status(401).json({ error: "Token invalide" });
-});
+};
+
+app.get("/snow/player/code", handlePlayerCode);
+app.post("/snow/player/code", handlePlayerCode);
 
 app.listen(3000, "0.0.0.0", () => {
   console.log("Backend lancé sur http://127.0.0.1:3000");
