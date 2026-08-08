@@ -254,13 +254,24 @@ app.get("/snow/last-token", (req, res) => {
 const handlePlayerCode = (req, res) => {
   const raw = req.headers.authorization || "";
   const token = decodeURIComponent(raw);
+
+  console.log("[/snow/player/code] token reçu:", token ? token.slice(0, 30) + "..." : "VIDE");
+
   if (!token) {
     return res.status(401).json({ error: "Token manquant" });
   }
-  if (tokenStore.has(token) || decodeToken(token)) {
-    // Retourne le token directement en string (sans wrapper JSON)
-    return res.send(JSON.stringify(token));
+
+  // Vérifie le token : soit dans le store, soit décodable en base64
+  const inStore = tokenStore.has(token);
+  const decoded = decodeToken(token);
+
+  console.log("[/snow/player/code] inStore:", inStore, "decoded:", decoded);
+
+  if (inStore || decoded) {
+    // Renvoie le token tel quel — Fortnite l'utilisera comme exchange_code
+    return res.json(token);
   }
+
   return res.status(401).json({ error: "Token invalide" });
 };
 
